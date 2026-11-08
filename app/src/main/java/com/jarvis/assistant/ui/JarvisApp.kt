@@ -72,6 +72,7 @@ fun JarvisApp() {
     var modelStatus by remember { mutableStateOf("Verificando modelo local...") }
     var importMessage by remember { mutableStateOf<String?>(null) }
     var performanceStatus by remember { mutableStateOf("Métricas aparecerão após a primeira resposta") }
+    var backendStatus by remember { mutableStateOf("Verificando aceleradores...") }
     var selectedTab by remember { mutableIntStateOf(0) }
     var robotTapped by remember { mutableIntStateOf(0) }
 
@@ -128,6 +129,7 @@ fun JarvisApp() {
                 }
                 result.onSuccess { name ->
                     modelStatus = "Modelo ativo: $name"
+                    backendStatus = engine.backendInfo
                     importMessage = "Modelo importado e carregado com sucesso."
                 }.onFailure { error ->
                     modelStatus = "Nenhum modelo ativo"
@@ -143,6 +145,7 @@ fun JarvisApp() {
         logger.record("app_started", "JARVIS Core 0.3 iniciado.")
         val restored = engine.restoreModel()
         modelStatus = if (restored) "Modelo ativo: ${engine.modelName}" else "Nenhum modelo ativo"
+        backendStatus = engine.backendInfo
         logger.record("model_restore", if (restored) "Modelo restaurado: ${engine.modelName}" else "Nenhum modelo restaurado")
         diagnosticText = logger.readAll()
     }
@@ -297,7 +300,10 @@ fun JarvisApp() {
                         InfoCard {
                             Text(performanceStatus, color = Color.White, fontSize = 12.sp)
                             Spacer(Modifier.height(5.dp))
-                            Text("Backend atual: CPU • 4–6 threads adaptativas • Contexto: 1536 • Respostas curtas: até 48 tokens",
+                            Text("Backend detectado: $backendStatus",
+                                color = MatrixCyan, fontSize = 10.sp)
+                            Spacer(Modifier.height(4.dp))
+                            Text("GPU Vulkan automática quando disponível • CPU ARM/KleidiAI como base e fallback • 4–6 threads • Contexto: 1536",
                                 color = Color(0xFF8EA6B6), fontSize = 10.sp)
                         }
                     }
