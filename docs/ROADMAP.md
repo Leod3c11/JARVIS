@@ -7,11 +7,14 @@
 - [x] Pipeline GitHub Actions
 
 ## 0.2 — LLM local
-- [ ] Integrar llama.cpp como submódulo ou dependência nativa fixada em commit
-- [ ] JNI bridge Kotlin/C++
-- [ ] Importar modelo GGUF pelo Storage Access Framework
-- [ ] Streaming de tokens e cancelamento
-- [ ] Configuração de threads, contexto e limite de memória
+- [x] Integração llama.cpp nativa por CMake/JNI (release v0.9.0 fixada)
+- [x] Importar modelo GGUF pelo Storage Access Framework
+- [x] Copiar o modelo para armazenamento privado do aplicativo
+- [x] Carregar modelo local e gerar respostas por CPU
+- [x] Limites iniciais de contexto, threads e tokens de saída
+- [ ] Streaming de tokens e cancelamento de geração
+- [ ] Configurações editáveis de contexto, threads e amostragem
+- [ ] Validar desempenho e estabilidade em dispositivos reais
 
 ## 0.3 — Memória
 - [ ] Room/SQLite
@@ -30,6 +33,6 @@
 
 ## 0.6 — Otimização
 - [ ] Benchmark CPU
-- [ ] Benchmark Vulkan
+- [ ] Benchmark Vulkan na Mali
 - [ ] Avaliação de runtime NPU MediaTek
 - [ ] Perfis de consumo e suspensão
