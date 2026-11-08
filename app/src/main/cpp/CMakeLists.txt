@@ -15,6 +15,10 @@ set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
 if(ANDROID)
     set(_jarvis_vulkan_loader
         "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/26/libvulkan.so")
+    if(NOT EXISTS "${_jarvis_vulkan_loader}")
+        set(_jarvis_vulkan_loader
+            "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/libvulkan.so")
+    endif()
     if(EXISTS "/usr/include/vulkan/vulkan.hpp"
        AND EXISTS "/usr/bin/glslc"
        AND EXISTS "/usr/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake"
