@@ -67,22 +67,25 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
         ""
     }
 
-    override suspend fun respond(userText: String): String = withContext(Dispatchers.IO) {
-        if (activeModelPath == null) {
-            return@withContext "Ainda não há um modelo carregado. Use “Importar modelo GGUF” para selecionar um modelo local."
-        }
-        if (!nativeAvailable) {
-            return@withContext "O motor nativo não está disponível nesta instalação."
-        }
+    override suspend fun respond(userText: String): String = respondStreaming(userText) {}
 
-        runCatching {
-            nativeGenerate(userText, MAX_OUTPUT_TOKENS, 0.7f, 40, 0.9f).also {
-                lastMetrics = nativeGetLastMetrics()
+    suspend fun respondStreaming(userText: String, onToken: (String) -> Unit): String =
+        withContext(Dispatchers.IO) {
+            if (activeModelPath == null) {
+                return@withContext "Ainda não há um modelo carregado. Importe um modelo GGUF nas configurações."
             }
-        }.getOrElse { error ->
-            "Não consegui gerar uma resposta: ${error.message ?: "erro nativo"}"
+            if (!nativeAvailable) {
+                return@withContext "O motor nativo não está disponível nesta instalação."
+            }
+
+            runCatching {
+                nativeGenerate(userText, MAX_OUTPUT_TOKENS, 0.7f, 40, 0.9f, NativeTokenCallback(onToken)).also {
+                    lastMetrics = nativeGetLastMetrics()
+                }
+            }.getOrElse { error ->
+                "Não consegui gerar uma resposta: ${error.message ?: "erro nativo"}"
+            }
         }
-    }
 
     fun unload() {
         if (nativeAvailable) runCatching { nativeUnloadModel() }
@@ -96,10 +99,15 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
         maxTokens: Int,
         temperature: Float,
         topK: Int,
-        topP: Float
+        topP: Float,
+        callback: NativeTokenCallback
     ): String
     private external fun nativeGetLastMetrics(): String
     private external fun nativeUnloadModel()
+
+    fun interface NativeTokenCallback {
+        fun onToken(token: String)
+    }
 
     private companion object {
         const val KEY_MODEL_PATH = "model_path"
