@@ -142,7 +142,7 @@ fun JarvisApp() {
             Spacer(Modifier.height(10.dp))
             if (selectedTab == 0) {
                 // Home: a identidade visual é o próprio robô de dados, não os controles do modelo.
-                Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
                         Modifier.fillMaxWidth().height(218.dp).clip(RoundedCornerShape(22.dp))
                             .background(Color(0xFF07151D))
