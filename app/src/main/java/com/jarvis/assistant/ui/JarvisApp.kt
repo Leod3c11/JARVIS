@@ -38,6 +38,7 @@ fun JarvisApp() {
     var importing by remember { mutableStateOf(false) }
     var modelStatus by remember { mutableStateOf("Verificando modelo local...") }
     var importMessage by remember { mutableStateOf<String?>(null) }
+    var performanceStatus by remember { mutableStateOf("Métricas aparecerão após a primeira resposta") }
 
     val messages = remember {
         mutableStateListOf(
@@ -159,7 +160,7 @@ fun JarvisApp() {
                         Text(it, color = Color(0xFFAAC2D5), fontSize = 11.sp)
                     }
                     Text(
-                        "Inferência local por CPU • Contexto 2048 • Saída máx. 256 tokens",
+                        "Inferência local por CPU • Contexto 2048 • Saída máx. 128 tokens",
                         color = Color(0xFF7894A8),
                         fontSize = 10.sp
                     )
@@ -226,6 +227,7 @@ fun JarvisApp() {
                         scope.launch {
                             val answer = runCatching { engine.respond(prompt) }
                                 .getOrElse { "Ocorreu um erro ao processar a mensagem: ${it.message}" }
+                            performanceStatus = engine.lastMetrics.ifBlank { "Métricas indisponíveis" }
                             messages.add(
                                 AssistantMessage(
                                     id = System.nanoTime(),
@@ -240,6 +242,7 @@ fun JarvisApp() {
                     Icon(Icons.Default.Send, contentDescription = "Enviar", tint = Color(0xFF54C8FF))
                 }
             }
+            Text(performanceStatus, color = Color(0xFF7894A8), fontSize = 10.sp)
             if (busy) {
                 Text("Gerando resposta local...", color = Color(0xFF75E6D1), fontSize = 11.sp)
             }
