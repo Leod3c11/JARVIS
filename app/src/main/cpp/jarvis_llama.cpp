@@ -96,7 +96,7 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeLoadModel(
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
         JNIEnv * env, jobject, jstring user_prompt, jint max_tokens,
-        jfloat temperature, jint top_k, jfloat top_p) {
+        jfloat temperature, jint top_k, jfloat top_p, jobject callback) {
     if (user_prompt == nullptr) return java_string(env, "Mensagem vazia.");
     const char * prompt_chars = env->GetStringUTFChars(user_prompt, nullptr);
     if (!prompt_chars) return java_string(env, "Não foi possível ler a mensagem.");
@@ -217,6 +217,11 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
     llama_sampler_chain_add(sampler, llama_sampler_init_temp(std::clamp(temperature, 0.1f, 1.5f)));
     llama_sampler_chain_add(sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
+    jclass callback_class = callback ? env->GetObjectClass(callback) : nullptr;
+    jmethodID on_token = callback_class
+        ? env->GetMethodID(callback_class, "onToken", "(Ljava/lang/String;)V")
+        : nullptr;
+
     std::string output;
     output.reserve(2048);
     llama_pos position = token_count;
@@ -228,7 +233,17 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
         const llama_token next = llama_sampler_sample(sampler, g_context, -1);
         if (llama_vocab_is_eog(vocab, next)) break;
 
-        output += token_piece(vocab, next);
+        const std::string piece = token_piece(vocab, next);
+        output += piece;
+        if (callback && on_token && !piece.empty()) {
+            jstring java_piece = java_string(env, piece);
+            env->CallVoidMethod(callback, on_token, java_piece);
+            env->DeleteLocalRef(java_piece);
+            if (env->ExceptionCheck()) {
+                __android_log_print(ANDROID_LOG_ERROR, TAG, "Token callback raised an exception");
+                env->ExceptionClear();
+            }
+        }
         ++generated_count;
         if (generated_count == 1) first_token_time = std::chrono::steady_clock::now();
 
@@ -260,6 +275,7 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
             << " • 1º token: " << ttft_seconds << " s"
             << " • Geração: " << generated_count << " tokens (" << generation_tps << " tok/s)";
     g_last_metrics = metrics.str();
+    __android_log_print(ANDROID_LOG_INFO, TAG, "Inference complete: %s", g_last_metrics.c_str());
 
     if (output.empty()) {
         return java_string(env, "O modelo não gerou texto. Use um modelo GGUF de instrução compatível.");
