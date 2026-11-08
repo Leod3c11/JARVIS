@@ -2,6 +2,7 @@ package com.jarvis.assistant.ui
 
 import android.graphics.Paint
 import android.provider.OpenableColumns
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
@@ -20,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
@@ -39,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jarvis.assistant.core.AssistantMessage
 import com.jarvis.assistant.core.LocalLlmAssistantEngine
+import com.jarvis.assistant.core.JarvisLogger
 import com.jarvis.assistant.platform.DeviceInfoProvider
 import com.jarvis.assistant.platform.DeviceSnapshot
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +59,8 @@ private val Panel = Color(0xFF0D1B25)
 fun JarvisApp() {
     val context = LocalContext.current
     val engine = remember { LocalLlmAssistantEngine(context.applicationContext) }
+    val logger = remember { JarvisLogger(context.applicationContext) }
+    var diagnosticText by remember { mutableStateOf("") }
     val provider = remember { DeviceInfoProvider(context.applicationContext) }
     var deviceInfo by remember { mutableStateOf(provider.snapshot()) }
     val scope = rememberCoroutineScope()
@@ -78,6 +83,15 @@ fun JarvisApp() {
         )
     }
 
+    val logExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri: Uri? ->
+        if (uri != null) runCatching {
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { it.write(logger.readAll()) }
+                ?: error("Não foi possível criar o arquivo de log.")
+            logger.record("log_export", "Arquivo de diagnóstico exportado.")
+            diagnosticText = logger.readAll()
+        }.onFailure { logger.record("log_export_failed", it.message ?: "erro", "ERROR") }
+    }
+
     val modelPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -85,6 +99,7 @@ fun JarvisApp() {
             scope.launch {
                 importing = true
                 importMessage = "Copiando e carregando modelo..."
+                logger.record("model_import_started", "Importação de modelo iniciada.")
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
                         val displayName = context.contentResolver.query(
@@ -115,6 +130,7 @@ fun JarvisApp() {
                 }.onFailure { error ->
                     modelStatus = "Nenhum modelo ativo"
                     importMessage = error.message ?: "Falha ao importar o modelo."
+                    logger.record("model_load_failed", error.stackTraceToString(), "ERROR")
                 }
                 importing = false
             }
@@ -122,12 +138,15 @@ fun JarvisApp() {
     }
 
     LaunchedEffect(Unit) {
+        logger.record("app_started", "JARVIS Core 0.3 iniciado.")
         val restored = engine.restoreModel()
         modelStatus = if (restored) "Modelo ativo: ${engine.modelName}" else "Nenhum modelo ativo"
+        logger.record("model_restore", if (restored) "Modelo restaurado: ${engine.modelName}" else "Nenhum modelo restaurado")
+        diagnosticText = logger.readAll()
     }
 
     Surface(Modifier.fillMaxSize(), color = Background) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 12.dp)) {
+        Column(Modifier.fillMaxSize().imePadding().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("J.A.R.V.I.S.", color = MatrixBlue, fontSize = 25.sp, fontWeight = FontWeight.Bold)
@@ -143,8 +162,10 @@ fun JarvisApp() {
             if (selectedTab == 0) {
                 // Home: a identidade visual é o próprio robô de dados, não os controles do modelo.
                 Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val robotHeight = (maxHeight * 0.30f).coerceIn(112.dp, 176.dp)
                     Box(
-                        Modifier.fillMaxWidth().height(218.dp).clip(RoundedCornerShape(22.dp))
+                        Modifier.fillMaxWidth().height(robotHeight).clip(RoundedCornerShape(22.dp))
                             .background(Color(0xFF07151D))
                             .clickable { robotTapped++ },
                         contentAlignment = Alignment.Center
@@ -157,12 +178,13 @@ fun JarvisApp() {
                                 color = Color(0xFF8EB5C5), fontSize = 9.sp, letterSpacing = 1.sp)
                         }
                     }
-                    Spacer(Modifier.height(9.dp))
+                    }
+                    Spacer(Modifier.height(6.dp))
                     Text(
                         if (busy) "Estou pensando..." else "Olá. Como posso ajudar?",
                         color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Medium
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(5.dp))
                     LazyColumn(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(9.dp)
@@ -206,12 +228,21 @@ fun JarvisApp() {
                                 messages.add(AssistantMessage(id = System.nanoTime(), text = prompt,
                                     role = AssistantMessage.Role.USER))
                                 busy = true
+                                logger.record("inference_started", "chars=${prompt.length}")
                                 scope.launch {
-                                    val answer = runCatching { engine.respond(prompt) }
-                                        .getOrElse { "Erro ao processar: ${it.message}" }
+                                    val startedAt = System.nanoTime()
+                                    val result = runCatching { engine.respond(prompt) }
+                                    val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+                                    val answer = result.getOrElse { error ->
+                                        logger.record("inference_exception", error.stackTraceToString(), "ERROR")
+                                        "Erro ao processar: ${error.message}"
+                                    }
                                     performanceStatus = engine.lastMetrics.ifBlank { "Métricas indisponíveis" }
+                                    if (result.isSuccess) logger.record("inference_success", "tempo_total_ms=${elapsedMs}; ${performanceStatus}")
+                                    else logger.record("inference_failed", "tempo_total_ms=${elapsedMs}; ${answer}", "ERROR")
                                     messages.add(AssistantMessage(id = System.nanoTime(), text = answer,
                                         role = AssistantMessage.Role.ASSISTANT))
+                                    diagnosticText = logger.readAll()
                                     busy = false
                                 }
                             }
@@ -221,7 +252,7 @@ fun JarvisApp() {
                     }
                     if (busy) Text("Processamento local em andamento...", color = MatrixCyan, fontSize = 10.sp)
                 }
-            } else {
+            } else if (selectedTab == 1) {
                 LazyColumn(
                     Modifier.weight(1f).fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -291,13 +322,38 @@ fun JarvisApp() {
                         }
                     }
                 }
+            } else {
+                Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SettingsSectionTitle("DIAGNÓSTICO E LOGS")
+                    Text("Os registros são mantidos localmente. O conteúdo das suas perguntas e respostas não é gravado por padrão.",
+                        color = Color(0xFF8EA6B6), fontSize = 11.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { diagnosticText = logger.readAll() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF124B59))) {
+                            Icon(Icons.Default.Refresh, contentDescription = null)
+                            Spacer(Modifier.width(5.dp)); Text("ATUALIZAR")
+                        }
+                        Button(onClick = { logExporter.launch("jarvis-diagnostico.txt") },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF124B59))) {
+                            Text("EXPORTAR .TXT")
+                        }
+                    }
+                    Text("${logger.entryCount()} eventos registrados • limite local de 1 MB",
+                        color = MatrixCyan, fontSize = 10.sp)
+                    Surface(Modifier.weight(1f).fillMaxWidth(), color = Panel, shape = RoundedCornerShape(14.dp)) {
+                        Text(diagnosticText.lineSequence().toList().takeLast(180).joinToString("\n").ifBlank { "Nenhum evento registrado ainda." },
+                            Modifier.fillMaxSize().padding(10.dp), color = Color(0xFFB4C9D5), fontSize = 9.sp,
+                            lineHeight = 13.sp)
+                    }
+                }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
             HorizontalDivider(color = Color(0xFF17303D))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 NavigationItem("JARVIS", selectedTab == 0, { selectedTab = 0 }, Icons.Default.Chat)
-                NavigationItem("CONFIGURAÇÕES", selectedTab == 1, { selectedTab = 1 }, Icons.Default.Settings)
+                NavigationItem("CONFIG", selectedTab == 1, { selectedTab = 1 }, Icons.Default.Settings)
+                NavigationItem("LOGS", selectedTab == 2, { selectedTab = 2; diagnosticText = logger.readAll() }, Icons.Default.BugReport)
             }
         }
     }
