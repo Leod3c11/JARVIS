@@ -104,12 +104,51 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
         return java_string(env, "Nenhum modelo local está carregado. Importe um GGUF primeiro.");
     }
 
-    const std::string prompt =
-        "### Instruções\n"
-        "Você é JARVIS, um assistente local. Responda em português do Brasil, "
-        "com clareza e precisão. Não invente fatos nem afirme que executou ações "
-        "no dispositivo.\n\n"
-        "### Usuário\n" + user_text + "\n\n### JARVIS\n";
+    // Cada chamada começa uma conversa nova nesta versão. Limpar o KV cache
+    // evita misturar tokens de mensagens anteriores e posições antigas.
+    llama_memory_clear(llama_get_memory(g_context), true);
+
+    const std::string system_text =
+        "Você é JARVIS, um assistente pessoal local e offline. "
+        "Responda sempre em português do Brasil, com clareza, precisão e "
+        "naturalidade. Seja direto e conciso por padrão; aprofunde somente "
+        "quando solicitado. Não invente fatos nem afirme que executou ações "
+        "no dispositivo.";
+    const llama_chat_message chat[] = {
+        {"system", system_text.c_str()},
+        {"user", user_text.c_str()}
+    };
+
+    // Usar o template gravado no próprio GGUF (ex.: Qwen ChatML) é essencial:
+    // o formato genérico ### Instruções não corresponde ao treinamento do modelo.
+    const char * chat_template = llama_model_chat_template(g_model, nullptr);
+    std::string prompt;
+    if (chat_template != nullptr) {
+        std::vector<char> formatted(8192);
+        int32_t formatted_size = llama_chat_apply_template(
+            chat_template, chat, 2, true, formatted.data(),
+            static_cast<int32_t>(formatted.size())
+        );
+        if (formatted_size > 0) {
+            if (formatted_size >= static_cast<int32_t>(formatted.size())) {
+                formatted.resize(static_cast<size_t>(formatted_size) + 1);
+                formatted_size = llama_chat_apply_template(
+                    chat_template, chat, 2, true, formatted.data(),
+                    static_cast<int32_t>(formatted.size())
+                );
+            }
+            if (formatted_size > 0 &&
+                formatted_size < static_cast<int32_t>(formatted.size())) {
+                prompt.assign(formatted.data(), static_cast<size_t>(formatted_size));
+            }
+        }
+    }
+
+    // Fallback para GGUFs sem template de conversa reconhecido.
+    if (prompt.empty()) {
+        prompt = "### Instruções\\n" + system_text +
+                 "\\n\\n### Usuário\\n" + user_text + "\\n\\n### JARVIS\\n";
+    }
 
     const llama_vocab * vocab = llama_model_get_vocab(g_model);
     const int32_t required = -llama_tokenize(
