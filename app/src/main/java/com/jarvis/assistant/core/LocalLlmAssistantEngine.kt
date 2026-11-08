@@ -15,6 +15,8 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
     private var activeModelPath: String? = null
     var modelName: String? = null
         private set
+    var lastMetrics: String = ""
+        private set
 
     private val nativeAvailable: Boolean = runCatching {
         System.loadLibrary("jarvis_llama")
@@ -74,7 +76,9 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
         }
 
         runCatching {
-            nativeGenerate(userText, MAX_OUTPUT_TOKENS, 0.7f, 40, 0.9f)
+            nativeGenerate(userText, MAX_OUTPUT_TOKENS, 0.7f, 40, 0.9f).also {
+                lastMetrics = nativeGetLastMetrics()
+            }
         }.getOrElse { error ->
             "Não consegui gerar uma resposta: ${error.message ?: "erro nativo"}"
         }
@@ -94,6 +98,7 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
         topK: Int,
         topP: Float
     ): String
+    private external fun nativeGetLastMetrics(): String
     private external fun nativeUnloadModel()
 
     private companion object {
