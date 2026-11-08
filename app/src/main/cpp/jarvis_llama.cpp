@@ -77,8 +77,8 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeLoadModel(
 
     llama_context_params context_params = llama_context_default_params();
     context_params.n_ctx = static_cast<uint32_t>(std::clamp(context_size, 512, 4096));
-    context_params.n_batch = 512;
-    context_params.n_ubatch = 512;
+    context_params.n_batch = 256;
+    context_params.n_ubatch = 128;
     context_params.n_threads = std::clamp(threads, 1, 8);
     context_params.n_threads_batch = std::clamp(threads, 1, 8);
     context_params.no_perf = true;
@@ -89,7 +89,10 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeLoadModel(
         return java_string(env, "Não foi possível reservar memória para o contexto. Tente um modelo menor.");
     }
 
-    __android_log_print(ANDROID_LOG_INFO, TAG, "GGUF loaded: %s", path.c_str());
+    __android_log_print(ANDROID_LOG_INFO, TAG,
+        "GGUF loaded: %s; ctx=%u; threads=%d; batch=%u; ubatch=%u",
+        path.c_str(), context_params.n_ctx, context_params.n_threads,
+        context_params.n_batch, context_params.n_ubatch);
     return java_string(env, "");
 }
 
@@ -114,11 +117,9 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
     llama_memory_clear(llama_get_memory(g_context), true);
 
     const std::string system_text =
-        "Você é JARVIS, um assistente pessoal local e offline. "
-        "Responda sempre em português do Brasil, com clareza, precisão e "
-        "naturalidade. Seja direto e conciso por padrão; aprofunde somente "
-        "quando solicitado. Não invente fatos nem afirme que executou ações "
-        "no dispositivo.";
+        "Você é JARVIS, assistente local. Responda em português do Brasil. "
+        "Seja direto: perguntas simples recebem respostas curtas. "
+        "Aprofunde apenas quando solicitado. Não invente fatos ou ações.";
     const llama_chat_message chat[] = {
         {"system", system_text.c_str()},
         {"user", user_text.c_str()}
