@@ -23,6 +23,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Install native acceleration build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev glslc spirv-headers
+
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -35,6 +40,12 @@ jobs:
 
       - name: Install Android SDK, NDK and CMake
         run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0" "platform-tools" "ndk;27.2.12479018" "cmake;3.22.1"
+
+      - name: Verify Vulkan cross-build toolchain
+        run: |
+          test -x "$(command -v glslc)"
+          test -f /usr/include/vulkan/vulkan.hpp
+          test -f /usr/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake
 
       - name: Generate Gradle wrapper
         run: |
