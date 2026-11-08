@@ -38,7 +38,7 @@ object JarvisCommandRouter {
 
     private fun extractAppRequest(text: String): String? {
         val prefixes = listOf(
-            "voce pode abrir ", "pode abrir ", "por favor abra ", "por favor abrir ",
+            "voce pode abrir ", "voce consegue abrir ", "quero abrir ", "pode abrir ", "por favor abra ", "por favor abrir ",
             "abra ", "abrir ", "abre ", "inicie ", "iniciar ", "execute ", "executar ",
             "open ", "launch "
         )
@@ -46,6 +46,7 @@ object JarvisCommandRouter {
         return text.removePrefix(prefix)
             .removePrefix("o aplicativo ").removePrefix("o app ")
             .removePrefix("aplicativo ").removePrefix("app ")
+            .removePrefix("o ").removePrefix("a ")
             .trim().trimEnd('.', '!', '?').takeIf(String::isNotBlank)
     }
 
