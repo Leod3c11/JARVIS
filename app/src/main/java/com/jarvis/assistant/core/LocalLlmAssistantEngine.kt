@@ -17,6 +17,8 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
         private set
     var lastMetrics: String = ""
         private set
+    var backendInfo: String = "Verificando aceleradores..."
+        private set
 
     private val nativeAvailable: Boolean = runCatching {
         System.loadLibrary("jarvis_llama")
@@ -35,6 +37,7 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
         if (loadError.isNullOrEmpty()) {
             activeModelPath = file.absolutePath
             modelName = file.name
+            backendInfo = nativeGetBackendInfo()
             true
         } else {
             preferences.edit().remove(KEY_MODEL_PATH).apply()
@@ -63,6 +66,7 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
 
         activeModelPath = file.absolutePath
         modelName = file.name
+        backendInfo = nativeGetBackendInfo()
         preferences.edit().putString(KEY_MODEL_PATH, file.absolutePath).apply()
         ""
     }
@@ -114,6 +118,7 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
         callback: NativeTokenCallback
     ): String
     private external fun nativeGetLastMetrics(): String
+    private external fun nativeGetBackendInfo(): String
     private external fun nativeUnloadModel()
 
     fun interface NativeTokenCallback {
