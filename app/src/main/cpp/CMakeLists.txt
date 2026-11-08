@@ -48,6 +48,13 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(llama_cpp)
 
+# Android's cross-compilation sysroot intentionally excludes host headers.
+# Vulkan-Headers are architecture-neutral API declarations; expose only that
+# header directory to the Vulkan backend while linking against the NDK loader.
+if(ANDROID AND TARGET ggml-vulkan)
+    target_include_directories(ggml-vulkan PRIVATE "/usr/include")
+endif()
+
 add_library(jarvis_llama SHARED jarvis_llama.cpp)
 target_compile_features(jarvis_llama PRIVATE cxx_std_17)
 target_compile_options(jarvis_llama PRIVATE -O3 -fexceptions -frtti)
