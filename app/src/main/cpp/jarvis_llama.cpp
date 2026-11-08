@@ -1,6 +1,9 @@
 #include <jni.h>
 #include <android/log.h>
 #include <algorithm>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -14,6 +17,7 @@ std::mutex g_mutex;
 llama_model * g_model = nullptr;
 llama_context * g_context = nullptr;
 bool g_backend_initialized = false;
+std::string g_last_metrics;
 
 void unload_locked() {
     if (g_context) {
@@ -100,6 +104,7 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
     env->ReleaseStringUTFChars(user_prompt, prompt_chars);
 
     std::lock_guard<std::mutex> lock(g_mutex);
+    g_last_metrics.clear();
     if (!g_model || !g_context) {
         return java_string(env, "Nenhum modelo local está carregado. Importe um GGUF primeiro.");
     }
@@ -150,6 +155,7 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
                  "\\n\\n### Usuário\\n" + user_text + "\\n\\n### JARVIS\\n";
     }
 
+    const auto inference_start = std::chrono::steady_clock::now();
     const llama_vocab * vocab = llama_model_get_vocab(g_model);
     const int32_t required = -llama_tokenize(
         vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()),
@@ -198,6 +204,7 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
         return java_string(env, "Falha ao processar o início da conversa.");
     }
 
+    const auto prefill_end = std::chrono::steady_clock::now();
     llama_sampler_chain_params sampler_params = llama_sampler_chain_default_params();
     llama_sampler * sampler = llama_sampler_chain_init(sampler_params);
     if (!sampler) {
@@ -213,12 +220,17 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
     std::string output;
     output.reserve(2048);
     llama_pos position = token_count;
+    int32_t generated_count = 0;
+    auto first_token_time = prefill_end;
+    const auto generation_start = std::chrono::steady_clock::now();
 
     for (int32_t generated = 0; generated < output_limit; ++generated) {
         const llama_token next = llama_sampler_sample(sampler, g_context, -1);
         if (llama_vocab_is_eog(vocab, next)) break;
 
         output += token_piece(vocab, next);
+        ++generated_count;
+        if (generated_count == 1) first_token_time = std::chrono::steady_clock::now();
 
         llama_batch_ext_clear(batch);
         const int32_t index = llama_batch_ext_add_token(batch, 0, next);
@@ -233,13 +245,33 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
         }
     }
 
+    const auto generation_end = std::chrono::steady_clock::now();
     llama_sampler_free(sampler);
     llama_batch_ext_free(batch);
+
+    const double prefill_seconds = std::chrono::duration<double>(prefill_end - inference_start).count();
+    const double generation_seconds = std::chrono::duration<double>(generation_end - generation_start).count();
+    const double ttft_seconds = std::chrono::duration<double>(first_token_time - inference_start).count();
+    const double prompt_tps = prefill_seconds > 0.0 ? token_count / prefill_seconds : 0.0;
+    const double generation_tps = generation_seconds > 0.0 ? generated_count / generation_seconds : 0.0;
+    std::ostringstream metrics;
+    metrics << std::fixed << std::setprecision(2)
+            << "Prompt: " << token_count << " tokens (" << prompt_tps << " tok/s)"
+            << " • 1º token: " << ttft_seconds << " s"
+            << " • Geração: " << generated_count << " tokens (" << generation_tps << " tok/s)";
+    g_last_metrics = metrics.str();
 
     if (output.empty()) {
         return java_string(env, "O modelo não gerou texto. Use um modelo GGUF de instrução compatível.");
     }
     return java_string(env, output);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGetLastMetrics(
+        JNIEnv * env, jobject) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return java_string(env, g_last_metrics);
 }
 
 extern "C" JNIEXPORT void JNICALL
