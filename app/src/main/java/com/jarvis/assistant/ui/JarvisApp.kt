@@ -3,6 +3,8 @@ package com.jarvis.assistant.ui
 import android.graphics.Paint
 import android.provider.OpenableColumns
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
@@ -229,19 +231,30 @@ fun JarvisApp() {
                                     role = AssistantMessage.Role.USER))
                                 busy = true
                                 logger.record("inference_started", "chars=${prompt.length}")
+                                val responseId = System.nanoTime()
+                                messages.add(AssistantMessage(id = responseId, text = "", role = AssistantMessage.Role.ASSISTANT))
                                 scope.launch {
                                     val startedAt = System.nanoTime()
-                                    val result = runCatching { engine.respond(prompt) }
+                                    val result = runCatching {
+                                        engine.respondStreaming(prompt) { token ->
+                                            Handler(Looper.getMainLooper()).post {
+                                                val index = messages.indexOfFirst { it.id == responseId }
+                                                if (index >= 0) messages[index] = messages[index].copy(
+                                                    text = messages[index].text + token
+                                                )
+                                            }
+                                        }
+                                    }
                                     val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
                                     val answer = result.getOrElse { error ->
                                         logger.record("inference_exception", error.stackTraceToString(), "ERROR")
                                         "Erro ao processar: ${error.message}"
                                     }
+                                    val index = messages.indexOfFirst { it.id == responseId }
+                                    if (index >= 0) messages[index] = messages[index].copy(text = answer)
                                     performanceStatus = engine.lastMetrics.ifBlank { "Métricas indisponíveis" }
                                     if (result.isSuccess) logger.record("inference_success", "tempo_total_ms=${elapsedMs}; ${performanceStatus}")
                                     else logger.record("inference_failed", "tempo_total_ms=${elapsedMs}; ${answer}", "ERROR")
-                                    messages.add(AssistantMessage(id = System.nanoTime(), text = answer,
-                                        role = AssistantMessage.Role.ASSISTANT))
                                     diagnosticText = logger.readAll()
                                     busy = false
                                 }
