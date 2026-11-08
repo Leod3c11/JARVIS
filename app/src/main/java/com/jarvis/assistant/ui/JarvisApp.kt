@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import com.jarvis.assistant.core.AssistantMessage
 import com.jarvis.assistant.core.LocalLlmAssistantEngine
 import com.jarvis.assistant.core.JarvisLogger
+import com.jarvis.assistant.platform.JarvisCommandRouter
 import com.jarvis.assistant.platform.DeviceInfoProvider
 import com.jarvis.assistant.platform.DeviceSnapshot
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +56,7 @@ fun JarvisApp() {
     val scope = rememberCoroutineScope()
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var faceState by remember { mutableStateOf(JarvisFaceState.IDLE) }
     var importing by remember { mutableStateOf(false) }
     var modelStatus by remember { mutableStateOf("Verificando modelo local...") }
     var importMessage by remember { mutableStateOf<String?>(null) }
@@ -160,20 +162,28 @@ fun JarvisApp() {
                         Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        JarvisFace(faceState, diameter = 104.dp)
+                        Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text("ASSISTENTE PESSOAL", color = Color(0xFF91A9B8),
                                 fontSize = 9.sp, letterSpacing = 1.8.sp, fontWeight = FontWeight.SemiBold)
                             Text("Em que posso ajudar?", color = Color.White,
-                                fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        Surface(color = Color(0xFF102B2B), shape = RoundedCornerShape(10.dp)) {
-                            Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(6.dp).clip(RoundedCornerShape(50)).background(MatrixCyan))
-                                Spacer(Modifier.width(6.dp))
-                                Text(if (busy) "PENSANDO" else "PRONTO", color = MatrixCyan,
-                                    fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                            }
+                                fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                when (faceState) {
+                                    JarvisFaceState.IDLE -> "PRONTO PARA VOCÊ"
+                                    JarvisFaceState.LISTENING -> "ESTOU OUVINDO"
+                                    JarvisFaceState.THINKING -> "ANALISANDO"
+                                    JarvisFaceState.SPEAKING -> "RESPONDENDO"
+                                },
+                                color = when (faceState) {
+                                    JarvisFaceState.THINKING -> Color(0xFFB3A8FF)
+                                    JarvisFaceState.LISTENING -> MatrixBlue
+                                    else -> MatrixCyan
+                                },
+                                fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp
+                            )
                         }
                     }
                     HorizontalDivider(color = Color(0xFF1A303B))
@@ -223,7 +233,7 @@ fun JarvisApp() {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         BasicTextField(
-                            value = input, onValueChange = { input = it },
+                            value = input, onValueChange = { input = it; if (!busy) faceState = if (it.isBlank()) JarvisFaceState.IDLE else JarvisFaceState.LISTENING },
                             modifier = Modifier.weight(1f).defaultMinSize(minHeight = 42.dp)
                                 .padding(vertical = 11.dp),
                             textStyle = LocalTextStyle.current.copy(
@@ -246,14 +256,17 @@ fun JarvisApp() {
                                 messages.add(AssistantMessage(id = System.nanoTime(), text = prompt,
                                     role = AssistantMessage.Role.USER))
                                 busy = true
+                                faceState = JarvisFaceState.THINKING
                                 logger.record("inference_started", "chars=${prompt.length}")
                                 val responseId = System.nanoTime()
                                 messages.add(AssistantMessage(id = responseId, text = "", role = AssistantMessage.Role.ASSISTANT))
                                 scope.launch {
                                     val startedAt = System.nanoTime()
-                                    val result = runCatching {
+                                    val commandResult = JarvisCommandRouter.handle(context, prompt)
+                                    val result = commandResult?.let { Result.success(it) } ?: runCatching {
                                         engine.respondStreaming(prompt) { token ->
                                             Handler(Looper.getMainLooper()).post {
+                                                faceState = JarvisFaceState.SPEAKING
                                                 val index = messages.indexOfFirst { it.id == responseId }
                                                 if (index >= 0) messages[index] = messages[index].copy(
                                                     text = messages[index].text + token
@@ -273,6 +286,7 @@ fun JarvisApp() {
                                     else logger.record("inference_failed", "tempo_total_ms=${elapsedMs}; ${answer}", "ERROR")
                                     diagnosticText = logger.readAll()
                                     busy = false
+                                    faceState = if (input.isBlank()) JarvisFaceState.IDLE else JarvisFaceState.LISTENING
                                 }
                             }
                         ) {
