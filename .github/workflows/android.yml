@@ -48,7 +48,10 @@ jobs:
           mkdir -p "$NDK_SYSROOT/vulkan" "$NDK_SYSROOT/vk_video"
           cp -a /usr/include/vulkan/. "$NDK_SYSROOT/vulkan/"
           cp -a /usr/include/vk_video/. "$NDK_SYSROOT/vk_video/"
+          mkdir -p "$NDK_SYSROOT/spirv"
+          cp -a /usr/include/spirv/. "$NDK_SYSROOT/spirv/"
           test -f "$NDK_SYSROOT/vulkan/vulkan.hpp"
+          test -f "$NDK_SYSROOT/spirv/unified1/spirv.hpp"
           test -x "$(command -v glslc)"
           test -f /usr/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake
 
