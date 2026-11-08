@@ -13,17 +13,18 @@ android {
         applicationId = "com.jarvis.assistant"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.5.0"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild {
             cmake {
                 arguments += listOf(
                     "-DANDROID_STL=c++_shared",
                     "-DGGML_NATIVE=OFF",
+                    "-DGGML_CPU_KLEIDIAI=ON",
                     "-DGGML_OPENMP=OFF",
                     "-DGGML_LLAMAFILE=OFF",
-                    "-DGGML_VULKAN=OFF",
+                    "-DGGML_VULKAN=ON",
                     "-DLLAMA_BUILD_TESTS=OFF",
                     "-DLLAMA_BUILD_EXAMPLES=OFF",
                     "-DLLAMA_BUILD_SERVER=OFF",
