@@ -73,6 +73,9 @@ fun JarvisFace(state: JarvisFaceState, modifier: Modifier = Modifier, diameter: 
             val headRy = 96f * unit
 
             // Sparse character silhouette: the density follows a human-like head contour.
+            drawIntoCanvas { canvas ->
+            val native = canvas.nativeCanvas
+            native.save()
             for (row in 0 until rows) {
                 val y = (row + 1) * cellH
                 for (col in 0 until cols) {
@@ -107,9 +110,7 @@ fun JarvisFace(state: JarvisFaceState, modifier: Modifier = Modifier, diameter: 
                         else -> glyphs[glyphIndex].toString()
                     }
                     val xOffset = if (state == JarvisFaceState.THINKING && !eyeRegion) drift * 1.3f * unit else 0f
-                    drawIntoCanvas { canvas ->
-                        canvas.nativeCanvas.drawText(glyph, x + xOffset, y, paint)
-                    }
+                    native.drawText(glyph, x + xOffset, y, paint)
                 }
             }
 
@@ -118,17 +119,17 @@ fun JarvisFace(state: JarvisFaceState, modifier: Modifier = Modifier, diameter: 
             paint.alpha = 245
             paint.textAlign = Paint.Align.CENTER
             val eyeGlyph = if (blink > 0.5f) "—" else if (state == JarvisFaceState.THINKING) "◉" else "●"
-            drawIntoCanvas { canvas ->
-                canvas.nativeCanvas.drawText(eyeGlyph, cx - eyeSpacing, eyeY + 4f * unit, paint)
-                canvas.nativeCanvas.drawText(eyeGlyph, cx + eyeSpacing, eyeY + 4f * unit, paint)
-                paint.textSize = 12f * unit
-                val mouth = when (state) {
-                    JarvisFaceState.IDLE -> "⌣"
-                    JarvisFaceState.LISTENING -> "◇"
-                    JarvisFaceState.THINKING -> "﹏"
-                    JarvisFaceState.SPEAKING -> if (pulse > 0.85f) "口" else "﹀"
-                }
-                canvas.nativeCanvas.drawText(mouth, cx, cy + 57f * unit, paint)
+            native.drawText(eyeGlyph, cx - eyeSpacing, eyeY + 4f * unit, paint)
+            native.drawText(eyeGlyph, cx + eyeSpacing, eyeY + 4f * unit, paint)
+            paint.textSize = 12f * unit
+            val mouth = when (state) {
+                JarvisFaceState.IDLE -> "⌣"
+                JarvisFaceState.LISTENING -> "◇"
+                JarvisFaceState.THINKING -> "﹏"
+                JarvisFaceState.SPEAKING -> if (pulse > 0.85f) "口" else "﹀"
+            }
+            native.drawText(mouth, cx, cy + 57f * unit, paint)
+            native.restore()
             }
         }
     }
