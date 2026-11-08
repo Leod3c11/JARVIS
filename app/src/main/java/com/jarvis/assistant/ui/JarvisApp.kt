@@ -297,7 +297,7 @@ fun JarvisApp() {
                         InfoCard {
                             Text(performanceStatus, color = Color.White, fontSize = 12.sp)
                             Spacer(Modifier.height(5.dp))
-                            Text("Backend atual: CPU • Contexto: 2048 • Saída máxima: 128 tokens",
+                            Text("Backend atual: CPU • 4–6 threads adaptativas • Contexto: 1536 • Respostas curtas: até 48 tokens",
                                 color = Color(0xFF8EA6B6), fontSize = 10.sp)
                         }
                     }
