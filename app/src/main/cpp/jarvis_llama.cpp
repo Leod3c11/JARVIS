@@ -151,7 +151,7 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
 
     // Fallback para GGUFs sem template de conversa reconhecido.
     if (prompt.empty()) {
-        prompt = "### Instruções\\n" + system_text +
+        prompt = "### Instruções\n" + system_text +
                  "\\n\\n### Usuário\\n" + user_text + "\\n\\n### JARVIS\\n";
     }
 
