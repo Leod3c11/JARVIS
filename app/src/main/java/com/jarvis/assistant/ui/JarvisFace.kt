@@ -92,7 +92,7 @@ fun JarvisFace(state: JarvisFaceState, modifier: Modifier = Modifier, diameter: 
                     val browRegion = y in (cy - 42f * unit)..(cy - 31f * unit) &&
                         abs(x - cx) in (eyeSpacing - 15f * unit)..(eyeSpacing + 15f * unit)
 
-                    val wave = sin(row * 0.62f + col * 0.31f + phase) * 0.5f + 0.5f
+                    val wave = (sin((row * 0.62f + col * 0.31f + phase).toDouble()) * 0.5 + 0.5).toFloat()
                     val edgeFade = ((1.12f - d) / 0.42f).coerceIn(0.15f, 1f)
                     val alpha = when {
                         eyeRegion -> if (eyeOpen < 0.2f) 0.25f else 0.98f
