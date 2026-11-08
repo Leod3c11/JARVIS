@@ -4,11 +4,13 @@ import android.provider.OpenableColumns
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,7 +66,11 @@ fun JarvisApp() {
     var performanceStatus by remember { mutableStateOf("Métricas aparecerão após a primeira resposta") }
     var backendStatus by remember { mutableStateOf("Verificando aceleradores...") }
     var selectedTab by remember { mutableIntStateOf(0) }
-    var robotTapped by remember { mutableIntStateOf(0) }
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val faceSize by animateDpAsState(
+        targetValue = if (input.isNotBlank() || imeVisible) 78.dp else 196.dp,
+        animationSpec = tween(durationMillis = 360), label = "face-size"
+    )
 
     val messages = remember {
         mutableStateListOf(
@@ -158,33 +165,27 @@ fun JarvisApp() {
                     Modifier.weight(1f).fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        Modifier.fillMaxWidth().height(faceSize + 34.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        JarvisFace(faceState, diameter = 104.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("ASSISTENTE PESSOAL", color = Color(0xFF91A9B8),
-                                fontSize = 9.sp, letterSpacing = 1.8.sp, fontWeight = FontWeight.SemiBold)
-                            Text("Em que posso ajudar?", color = Color.White,
-                                fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                when (faceState) {
-                                    JarvisFaceState.IDLE -> "PRONTO PARA VOCÊ"
-                                    JarvisFaceState.LISTENING -> "ESTOU OUVINDO"
-                                    JarvisFaceState.THINKING -> "ANALISANDO"
-                                    JarvisFaceState.SPEAKING -> "RESPONDENDO"
-                                },
-                                color = when (faceState) {
-                                    JarvisFaceState.THINKING -> Color(0xFFB3A8FF)
-                                    JarvisFaceState.LISTENING -> MatrixBlue
-                                    else -> MatrixCyan
-                                },
-                                fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp
-                            )
-                        }
+                        JarvisFace(faceState, diameter = faceSize)
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            when (faceState) {
+                                JarvisFaceState.IDLE -> "J.A.R.V.I.S.  /  ONLINE"
+                                JarvisFaceState.LISTENING -> "OUVINDO"
+                                JarvisFaceState.THINKING -> "PROCESSANDO"
+                                JarvisFaceState.SPEAKING -> "RESPONDENDO"
+                            },
+                            color = when (faceState) {
+                                JarvisFaceState.THINKING -> Color(0xFFB3A8FF)
+                                JarvisFaceState.LISTENING -> MatrixBlue
+                                else -> MatrixCyan
+                            },
+                            fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp
+                        )
                     }
                     HorizontalDivider(color = Color(0xFF1A303B))
                     LazyColumn(
@@ -264,13 +265,24 @@ fun JarvisApp() {
                                     val startedAt = System.nanoTime()
                                     val commandResult = JarvisCommandRouter.handle(context, prompt)
                                     val result = commandResult?.let { Result.success(it) } ?: runCatching {
+                                        val streamBuffer = StringBuilder()
+                                        val streamLock = Any()
+                                        var lastUiUpdate = 0L
                                         engine.respondStreaming(prompt) { token ->
-                                            Handler(Looper.getMainLooper()).post {
-                                                faceState = JarvisFaceState.SPEAKING
-                                                val index = messages.indexOfFirst { it.id == responseId }
-                                                if (index >= 0) messages[index] = messages[index].copy(
-                                                    text = messages[index].text + token
-                                                )
+                                            val now = SystemClock.uptimeMillis()
+                                            val snapshot = synchronized(streamLock) {
+                                                streamBuffer.append(token)
+                                                if (now - lastUiUpdate >= 55L) {
+                                                    lastUiUpdate = now
+                                                    streamBuffer.toString()
+                                                } else null
+                                            }
+                                            if (snapshot != null) {
+                                                Handler(Looper.getMainLooper()).post {
+                                                    faceState = JarvisFaceState.SPEAKING
+                                                    val index = messages.indexOfFirst { it.id == responseId }
+                                                    if (index >= 0) messages[index] = messages[index].copy(text = snapshot)
+                                                }
                                             }
                                         }
                                     }
@@ -284,7 +296,7 @@ fun JarvisApp() {
                                     performanceStatus = engine.lastMetrics.ifBlank { "Métricas indisponíveis" }
                                     if (result.isSuccess) logger.record("inference_success", "tempo_total_ms=${elapsedMs}; ${performanceStatus}")
                                     else logger.record("inference_failed", "tempo_total_ms=${elapsedMs}; ${answer}", "ERROR")
-                                    diagnosticText = logger.readAll()
+                                    if (selectedTab == 2) diagnosticText = logger.readAll()
                                     busy = false
                                     faceState = if (input.isBlank()) JarvisFaceState.IDLE else JarvisFaceState.LISTENING
                                 }
