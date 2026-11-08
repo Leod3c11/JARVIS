@@ -41,10 +41,15 @@ jobs:
       - name: Install Android SDK, NDK and CMake
         run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0" "platform-tools" "ndk;27.2.12479018" "cmake;3.22.1"
 
-      - name: Verify Vulkan cross-build toolchain
+      - name: Stage Vulkan headers in Android NDK sysroot
         run: |
-          test -x "$(command -v glslc)"
+          NDK_SYSROOT="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include"
           test -f /usr/include/vulkan/vulkan.hpp
+          mkdir -p "$NDK_SYSROOT/vulkan" "$NDK_SYSROOT/vk_video"
+          cp -a /usr/include/vulkan/. "$NDK_SYSROOT/vulkan/"
+          cp -a /usr/include/vk_video/. "$NDK_SYSROOT/vk_video/"
+          test -f "$NDK_SYSROOT/vulkan/vulkan.hpp"
+          test -x "$(command -v glslc)"
           test -f /usr/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake
 
       - name: Generate Gradle wrapper
