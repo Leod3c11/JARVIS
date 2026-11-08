@@ -54,6 +54,7 @@ jobs:
           test -f "$NDK_SYSROOT/spirv/unified1/spirv.hpp"
           test -x "$(command -v glslc)"
           test -f /usr/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake
+          test -f "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/28/libvulkan.so"
 
       - name: Generate Gradle wrapper
         run: |
