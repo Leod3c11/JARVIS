@@ -151,7 +151,7 @@ fun JarvisApp() {
     }
 
     Surface(Modifier.fillMaxSize(), color = Background) {
-        Column(Modifier.fillMaxSize().imePadding().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Column(Modifier.fillMaxSize().imePadding().navigationBarsPadding().padding(horizontal = 18.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("J.A.R.V.I.S.", color = MatrixBlue, fontSize = 25.sp, fontWeight = FontWeight.Bold)
@@ -165,62 +165,88 @@ fun JarvisApp() {
 
             Spacer(Modifier.height(10.dp))
             if (selectedTab == 0) {
-                // Home: a identidade visual é o próprio robô de dados, não os controles do modelo.
-                Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    val robotHeight = (maxHeight * 0.30f).coerceIn(112.dp, 176.dp)
-                    Box(
-                        Modifier.fillMaxWidth().height(robotHeight).clip(RoundedCornerShape(22.dp))
-                            .background(Color(0xFF07151D))
-                            .clickable { robotTapped++ },
-                        contentAlignment = Alignment.Center
+                Column(
+                    Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        MatrixRobot(Modifier.fillMaxSize(), active = busy || robotTapped % 2 == 1)
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(if (busy) "PROCESSANDO" else "JARVIS", color = MatrixCyan,
-                                fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
-                            Text(if (busy) "ANALISANDO SUA SOLICITAÇÃO" else "À SUA DISPOSIÇÃO",
-                                color = Color(0xFF8EB5C5), fontSize = 9.sp, letterSpacing = 1.sp)
+                        Column(Modifier.weight(1f)) {
+                            Text("ASSISTENTE PESSOAL", color = Color(0xFF91A9B8),
+                                fontSize = 9.sp, letterSpacing = 1.8.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Em que posso ajudar?", color = Color.White,
+                                fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Surface(color = Color(0xFF102B2B), shape = RoundedCornerShape(10.dp)) {
+                            Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(6.dp).clip(RoundedCornerShape(50)).background(MatrixCyan))
+                                Spacer(Modifier.width(6.dp))
+                                Text(if (busy) "PENSANDO" else "PRONTO", color = MatrixCyan,
+                                    fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            }
                         }
                     }
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        if (busy) "Estou pensando..." else "Olá. Como posso ajudar?",
-                        color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Medium
-                    )
-                    Spacer(Modifier.height(5.dp))
+                    HorizontalDivider(color = Color(0xFF1A303B))
                     LazyColumn(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(9.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 12.dp)
                     ) {
                         items(messages, key = { it.id }) { message ->
                             val isUser = message.role == AssistantMessage.Role.USER
-                            Row(Modifier.fillMaxWidth(),
-                                horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
+                            Column(Modifier.fillMaxWidth(),
+                                horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
+                                Text(if (isUser) "VOCÊ" else "JARVIS",
+                                    color = if (isUser) MatrixBlue else MatrixCyan,
+                                    fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.2.sp,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 3.dp))
                                 Surface(
-                                    color = if (isUser) Color(0xFF123C52) else Panel,
-                                    shape = RoundedCornerShape(16.dp),
-                                    modifier = Modifier.widthIn(max = 315.dp)
+                                    color = if (isUser) Color(0xFF12384A) else Color(0xFF101D26),
+                                    shape = RoundedCornerShape(
+                                        topStart = 16.dp, topEnd = 16.dp,
+                                        bottomStart = if (isUser) 16.dp else 5.dp,
+                                        bottomEnd = if (isUser) 5.dp else 16.dp
+                                    ),
+                                    modifier = Modifier.widthIn(max = 340.dp)
                                 ) {
-                                    Text(message.text, Modifier.padding(13.dp), color = Color.White, fontSize = 14.sp)
+                                    Text(message.text.ifBlank { if (busy && !isUser) " " else "" },
+                                        Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                        color = Color(0xFFE7F0F4), fontSize = 14.sp,
+                                        lineHeight = 20.sp)
                                 }
+                            }
+                        }
+                        if (busy) {
+                            item {
+                                Text("JARVIS ESTÁ PROCESSANDO…", color = MatrixCyan,
+                                    fontSize = 9.sp, letterSpacing = 1.sp,
+                                    modifier = Modifier.padding(start = 5.dp))
                             }
                         }
                     }
                     Row(
-                        Modifier.fillMaxWidth().background(Panel, RoundedCornerShape(18.dp))
-                            .padding(start = 14.dp, end = 5.dp, top = 6.dp, bottom = 6.dp),
+                        Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFF101D26))
+                            .padding(start = 15.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         BasicTextField(
                             value = input, onValueChange = { input = it },
-                            modifier = Modifier.weight(1f),
-                            textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 14.sp),
+                            modifier = Modifier.weight(1f).defaultMinSize(minHeight = 42.dp)
+                                .padding(vertical = 11.dp),
+                            textStyle = LocalTextStyle.current.copy(
+                                color = Color.White, fontSize = 14.sp, lineHeight = 19.sp
+                            ),
                             enabled = !busy && !importing,
                             decorationBox = { inner ->
                                 Box {
-                                    if (input.isEmpty()) Text("Converse com o JARVIS...", color = Color.Gray, fontSize = 14.sp)
+                                    if (input.isEmpty()) Text("Mensagem para o JARVIS…",
+                                        color = Color(0xFF78909D), fontSize = 14.sp)
                                     inner()
                                 }
                             }
@@ -263,10 +289,10 @@ fun JarvisApp() {
                                 }
                             }
                         ) {
-                            Icon(Icons.Default.Send, contentDescription = "Enviar", tint = MatrixBlue)
+                            Icon(Icons.Default.Send, contentDescription = "Enviar",
+                                tint = if (input.isNotBlank() && !busy) MatrixCyan else Color(0xFF58717F))
                         }
                     }
-                    if (busy) Text("Processamento local em andamento...", color = MatrixCyan, fontSize = 10.sp)
                 }
             } else if (selectedTab == 1) {
                 LazyColumn(
