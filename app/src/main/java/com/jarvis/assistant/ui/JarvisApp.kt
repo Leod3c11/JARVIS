@@ -1,19 +1,11 @@
 package com.jarvis.assistant.ui
 
-import android.graphics.Paint
 import android.provider.OpenableColumns
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -33,10 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -50,7 +38,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.math.min
 
 private val MatrixCyan = Color(0xFF55E6D0)
 private val MatrixBlue = Color(0xFF54C8FF)
@@ -436,72 +423,3 @@ private fun HardwareRow(label: String, value: String) {
     }
 }
 
-@Composable
-private fun MatrixRobot(modifier: Modifier = Modifier, active: Boolean) {
-    val transition = rememberInfiniteTransition(label = "matrix-rain")
-    val phase by transition.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2600, easing = LinearEasing), RepeatMode.Restart),
-        label = "rain-phase"
-    )
-    Canvas(modifier) {
-        val w = size.width
-        val h = size.height
-        val centerX = w / 2f
-        val centerY = h / 2f
-        val green = android.graphics.Paint().apply {
-            color = android.graphics.Color.rgb(38, 210, 164)
-            textSize = 10f
-            alpha = 120
-            typeface = android.graphics.Typeface.MONOSPACE
-        }
-        val native = drawContext.canvas.nativeCanvas
-        val columns = (w / 15f).toInt().coerceAtLeast(1)
-        for (col in 0 until columns) {
-            val x = col * 15f
-            val offset = ((col * 37f + phase * h * 1.7f) % (h + 50f)) - 25f
-            for (row in 0..7) {
-                val y = (offset + row * 14f) % (h + 20f)
-                native.drawText(if ((col + row) % 2 == 0) "1" else "0", x, y, green)
-            }
-        }
-        val scale = min(w / 280f, h / 205f)
-        val headW = 104f * scale
-        val headH = 92f * scale
-        val top = centerY - headH * 0.75f
-        val left = centerX - headW / 2f
-        val lineColor = if (active) MatrixCyan else MatrixBlue
-        val outline = Path().apply {
-            moveTo(left + 15f * scale, top)
-            lineTo(left + headW - 15f * scale, top)
-            lineTo(left + headW, top + 18f * scale)
-            lineTo(left + headW - 8f * scale, top + headH - 8f * scale)
-            lineTo(centerX + 28f * scale, top + headH)
-            lineTo(centerX + 20f * scale, top + headH + 12f * scale)
-            lineTo(centerX - 20f * scale, top + headH + 12f * scale)
-            lineTo(centerX - 28f * scale, top + headH)
-            lineTo(left + 8f * scale, top + headH - 8f * scale)
-            lineTo(left, top + 18f * scale)
-            close()
-        }
-        drawPath(outline, lineColor, style = Stroke(width = 2f * scale))
-        drawLine(lineColor, androidx.compose.ui.geometry.Offset(centerX, top - 17f * scale),
-            androidx.compose.ui.geometry.Offset(centerX, top), strokeWidth = 2f * scale)
-        drawCircle(MatrixCyan, radius = 4f * scale,
-            center = androidx.compose.ui.geometry.Offset(centerX, top - 21f * scale))
-        drawLine(lineColor, androidx.compose.ui.geometry.Offset(left - 18f * scale, top + 36f * scale),
-            androidx.compose.ui.geometry.Offset(left + 5f * scale, top + 42f * scale), strokeWidth = 3f * scale)
-        drawLine(lineColor, androidx.compose.ui.geometry.Offset(left + headW - 5f * scale, top + 42f * scale),
-            androidx.compose.ui.geometry.Offset(left + headW + 18f * scale, top + 36f * scale), strokeWidth = 3f * scale)
-        drawRoundRect(lineColor.copy(alpha = 0.75f), topLeft = androidx.compose.ui.geometry.Offset(centerX - 31f * scale, top + 35f * scale),
-            size = androidx.compose.ui.geometry.Size(20f * scale, 9f * scale), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale))
-        drawRoundRect(lineColor.copy(alpha = 0.75f), topLeft = androidx.compose.ui.geometry.Offset(centerX + 11f * scale, top + 35f * scale),
-            size = androidx.compose.ui.geometry.Size(20f * scale, 9f * scale), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale))
-        drawLine(MatrixCyan.copy(alpha = 0.8f), androidx.compose.ui.geometry.Offset(centerX - 15f * scale, top + 62f * scale),
-            androidx.compose.ui.geometry.Offset(centerX + 15f * scale, top + 62f * scale), strokeWidth = 2f * scale)
-        drawLine(lineColor.copy(alpha = 0.6f), androidx.compose.ui.geometry.Offset(centerX, top + headH + 12f * scale),
-            androidx.compose.ui.geometry.Offset(centerX, top + headH + 32f * scale), strokeWidth = 2f * scale)
-        drawLine(lineColor.copy(alpha = 0.6f), androidx.compose.ui.geometry.Offset(centerX - 43f * scale, top + headH + 32f * scale),
-            androidx.compose.ui.geometry.Offset(centerX + 43f * scale, top + headH + 32f * scale), strokeWidth = 2f * scale)
-    }
-}
