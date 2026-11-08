@@ -100,6 +100,6 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
         const val KEY_MODEL_PATH = "model_path"
         const val DEFAULT_CONTEXT = 2048
         const val DEFAULT_THREADS = 4
-        const val MAX_OUTPUT_TOKENS = 256
+        const val MAX_OUTPUT_TOKENS = 128
     }
 }
