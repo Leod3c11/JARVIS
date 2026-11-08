@@ -60,7 +60,7 @@ fun JarvisFace(state: JarvisFaceState, modifier: Modifier = Modifier, diameter: 
                 textSize = 8.2f * unit
                 color = color
             }
-            val glyphs = "01アイ#%@$*+=<>/\\[]{}:;ZXCV"
+            val glyphs = "01アイ#%@\$*+=<>/\\[]{}:;ZXCV"
             val cols = 25
             val rows = 23
             val cellW = w / (cols + 1f)
