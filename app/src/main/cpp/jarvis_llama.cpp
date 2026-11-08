@@ -1,6 +1,7 @@
 #include <jni.h>
 #include <android/log.h>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <iomanip>
 #include <sstream>
@@ -14,6 +15,7 @@
 namespace {
 constexpr const char * TAG = "JARVIS-LLM";
 std::mutex g_mutex;
+std::atomic<bool> g_cancel{false}; // definido por nativeCancel, lido no laço de geração
 llama_model * g_model = nullptr;
 llama_context * g_context = nullptr;
 bool g_backend_initialized = false;
@@ -107,6 +109,7 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
     env->ReleaseStringUTFChars(user_prompt, prompt_chars);
 
     std::lock_guard<std::mutex> lock(g_mutex);
+    g_cancel.store(false);
     g_last_metrics.clear();
     if (!g_model || !g_context) {
         return java_string(env, "Nenhum modelo local está carregado. Importe um GGUF primeiro.");
@@ -231,6 +234,7 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
     const auto generation_start = std::chrono::steady_clock::now();
 
     for (int32_t generated = 0; generated < output_limit; ++generated) {
+        if (g_cancel.load()) break;
         const llama_token next = llama_sampler_sample(sampler, g_context, -1);
         if (llama_vocab_is_eog(vocab, next)) break;
 
@@ -279,9 +283,16 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
     __android_log_print(ANDROID_LOG_INFO, TAG, "Inference complete: %s", g_last_metrics.c_str());
 
     if (output.empty()) {
+        if (g_cancel.load()) return java_string(env, "Geração interrompida.");
         return java_string(env, "O modelo não gerou texto. Use um modelo GGUF de instrução compatível.");
     }
     return java_string(env, output);
+}
+
+// Não toma o mutex: precisa funcionar enquanto nativeGenerate o mantém.
+extern "C" JNIEXPORT void JNICALL
+Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeCancel(JNIEnv *, jobject) {
+    g_cancel.store(true);
 }
 
 extern "C" JNIEXPORT jstring JNICALL

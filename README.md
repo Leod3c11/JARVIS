@@ -21,11 +21,26 @@ Assistente Android com interface Kotlin + Jetpack Compose e inferência local ba
 
 Comece com um modelo pequeno e quantizado. O tamanho do modelo, o contexto e a memória disponível determinam se ele poderá ser carregado no aparelho.
 
+## Core 0.5 — Rosto Matrix e controle com root (opcional)
+
+- **Rosto em código Matrix**: a tela inicial desenha um rosto com chuva de glifos. Ele pisca, o olhar
+  acompanha o seu dedo, a boca se move com os tokens e a expressão muda entre
+  *à disposição / ouvindo / pensando / respondendo*. Toque no rosto para chamar a atenção dele.
+- **Botão Parar**: interrompe a geração em andamento (cancelamento nativo).
+- **Root Broker**: com root autorizado (ex.: Magisk), o JARVIS pode aplicar perfis de CPU
+  (Desempenho / Equilibrado / Economia), liberar memória, ler temperaturas e restaurar o estado original.
+- **Comandos no chat**: “modo desempenho”, “modo economia”, “modo normal”, “liberar memória”,
+  “temperatura do celular”, “estado da CPU”, “restaurar estado original”.
+  Ações que alteram o sistema pedem confirmação.
+- **Boost durante respostas** (opt-in em CONFIG): sobe a CPU só enquanto o modelo gera texto e restaura em seguida.
+  É recusado se o aparelho estiver quente ou com bateria < 15%.
+
 ## Segurança e limitações
 
-- Não é necessário acesso à internet, microfone, acessibilidade ou root.
+- Internet, microfone e acessibilidade não são necessários. Root é **opcional** e só é usado nas operações acima.
 - O modelo é executado localmente; mensagens não são enviadas a um servidor.
 - A saída do LLM é texto e nunca é executada como comando do sistema.
+- Operações com root são uma lista fixa (`PrivilegedAction`); valores são validados contra o que o kernel anuncia.
 - A primeira versão não mantém histórico de contexto entre mensagens.
 - O backend inicial é CPU-only; Vulkan/Mali e NPU não estão habilitados nem presumidos.
 

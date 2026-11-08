@@ -44,6 +44,13 @@ import androidx.compose.ui.unit.sp
 import com.jarvis.assistant.core.AssistantMessage
 import com.jarvis.assistant.core.LocalLlmAssistantEngine
 import com.jarvis.assistant.core.JarvisLogger
+import com.jarvis.assistant.core.IntentRouter
+import com.jarvis.assistant.platform.PerformanceProfile
+import com.jarvis.assistant.platform.PrivilegedAction
+import com.jarvis.assistant.platform.RootBroker
+import android.content.Context
+import androidx.compose.material.icons.filled.Stop
+import kotlinx.coroutines.delay
 import com.jarvis.assistant.platform.DeviceInfoProvider
 import com.jarvis.assistant.platform.DeviceSnapshot
 import kotlinx.coroutines.Dispatchers
@@ -74,6 +81,24 @@ fun JarvisApp() {
     var performanceStatus by remember { mutableStateOf("Métricas aparecerão após a primeira resposta") }
     var selectedTab by remember { mutableIntStateOf(0) }
     var robotTapped by remember { mutableIntStateOf(0) }
+    var attention by remember { mutableStateOf(false) }
+    var generating by remember { mutableStateOf(false) }
+    var firstTokenReceived by remember { mutableStateOf(false) }
+    var speechPulse by remember { mutableIntStateOf(0) }
+    var pendingAction by remember { mutableStateOf<PrivilegedAction?>(null) }
+    var rootStatus by remember { mutableStateOf("Não verificado") }
+    var rootMessage by remember { mutableStateOf<String?>(null) }
+    val broker = remember { RootBroker(context.applicationContext, logger) }
+    val uiPrefs = remember { context.getSharedPreferences("jarvis_ui", Context.MODE_PRIVATE) }
+    var boostEnabled by remember { mutableStateOf(uiPrefs.getBoolean("inference_boost", false)) }
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+
+    val faceMode = when {
+        busy && generating && firstTokenReceived -> FaceMode.SPEAKING
+        busy -> FaceMode.THINKING
+        input.isNotBlank() || attention -> FaceMode.LISTENING
+        else -> FaceMode.IDLE
+    }
 
     val messages = remember {
         mutableStateListOf(
@@ -140,11 +165,102 @@ fun JarvisApp() {
     }
 
     LaunchedEffect(Unit) {
-        logger.record("app_started", "JARVIS Core 0.3 iniciado.")
+        logger.record("app_started", "JARVIS Core 0.5 iniciado.")
+        broker.recoverIfNeeded()
         val restored = engine.restoreModel()
         modelStatus = if (restored) "Modelo ativo: ${engine.modelName}" else "Nenhum modelo ativo"
         logger.record("model_restore", if (restored) "Modelo restaurado: ${engine.modelName}" else "Nenhum modelo restaurado")
         diagnosticText = logger.readAll()
+    }
+
+    LaunchedEffect(robotTapped) {
+        if (robotTapped > 0) {
+            attention = true
+            delay(2500)
+            attention = false
+        }
+    }
+
+    fun addAssistant(text: String) {
+        messages.add(AssistantMessage(id = System.nanoTime(), text = text, role = AssistantMessage.Role.ASSISTANT))
+    }
+
+    fun startInference(prompt: String) {
+        busy = true
+        generating = true
+        firstTokenReceived = false
+        logger.record("inference_started", "chars=${prompt.length}")
+        val responseId = System.nanoTime()
+        messages.add(AssistantMessage(id = responseId, text = "", role = AssistantMessage.Role.ASSISTANT))
+        scope.launch {
+            val startedAt = System.nanoTime()
+            // Boost opcional (opt-in nas configurações): só se o root estiver autorizado e as guardas passarem.
+            val boosted = boostEnabled && broker.beginInferenceBoost()
+            val result = runCatching {
+                engine.respondStreaming(prompt) { token ->
+                    mainHandler.post {
+                        firstTokenReceived = true
+                        speechPulse++
+                        val index = messages.indexOfFirst { it.id == responseId }
+                        if (index >= 0) messages[index] = messages[index].copy(text = messages[index].text + token)
+                    }
+                }
+            }
+            if (boosted) broker.endInferenceBoost()
+            val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+            val answer = result.getOrElse { error ->
+                logger.record("inference_exception", error.stackTraceToString(), "ERROR")
+                "Erro ao processar: ${error.message}"
+            }
+            val index = messages.indexOfFirst { it.id == responseId }
+            if (index >= 0) messages[index] = messages[index].copy(text = answer)
+            performanceStatus = engine.lastMetrics.ifBlank { "Métricas indisponíveis" }
+            if (result.isSuccess) logger.record("inference_success", "tempo_total_ms=${elapsedMs}; boost=$boosted; ${performanceStatus}")
+            else logger.record("inference_failed", "tempo_total_ms=${elapsedMs}; ${answer}", "ERROR")
+            diagnosticText = logger.readAll()
+            generating = false
+            busy = false
+        }
+    }
+
+    fun handleAction(action: PrivilegedAction) {
+        if (!action.mutating) {
+            // Leituras não alteram nada: executam direto.
+            scope.launch {
+                busy = true
+                var result = broker.execute(action)
+                if (!result.ok && broker.isRootAvailable()) result = broker.execute(action)
+                addAssistant(if (result.ok) "${action.title}:\n${result.message}" else result.message)
+                diagnosticText = logger.readAll()
+                busy = false
+            }
+        } else {
+            pendingAction = action
+            addAssistant("Posso executar “${action.title}”? ${action.description} Confirme ou cancele abaixo.")
+        }
+    }
+
+    fun confirmPending() {
+        val action = pendingAction ?: return
+        pendingAction = null
+        scope.launch {
+            busy = true
+            val result = broker.execute(action)
+            addAssistant(if (result.ok) "✔ ${action.title} concluído.\n${result.message}" else "✖ ${result.message}")
+            if (result.ok) deviceInfo = provider.snapshot()
+            diagnosticText = logger.readAll()
+            busy = false
+        }
+    }
+
+    fun submit() {
+        val prompt = input.trim()
+        if (prompt.isEmpty() || busy || importing) return
+        input = ""
+        messages.add(AssistantMessage(id = System.nanoTime(), text = prompt, role = AssistantMessage.Role.USER))
+        pendingAction = null
+        val action = IntentRouter.route(prompt)
+        if (action != null) handleAction(action) else startInference(prompt)
     }
 
     Surface(Modifier.fillMaxSize(), color = Background) {
@@ -165,25 +281,27 @@ fun JarvisApp() {
                 // Home: a identidade visual é o próprio robô de dados, não os controles do modelo.
                 Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    val robotHeight = (maxHeight * 0.30f).coerceIn(112.dp, 176.dp)
-                    Box(
-                        Modifier.fillMaxWidth().height(robotHeight).clip(RoundedCornerShape(22.dp))
-                            .background(Color(0xFF07151D))
-                            .clickable { robotTapped++ },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        MatrixRobot(Modifier.fillMaxSize(), active = busy || robotTapped % 2 == 1)
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(if (busy) "PROCESSANDO" else "JARVIS", color = MatrixCyan,
-                                fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
-                            Text(if (busy) "ANALISANDO SUA SOLICITAÇÃO" else "À SUA DISPOSIÇÃO",
-                                color = Color(0xFF8EB5C5), fontSize = 9.sp, letterSpacing = 1.sp)
+                        val faceHeight = (maxHeight * 0.40f).coerceIn(150.dp, 300.dp)
+                        Box(
+                            Modifier.fillMaxWidth().height(faceHeight)
+                                .clip(RoundedCornerShape(22.dp)).background(Color(0xFF040B10))
+                        ) {
+                            MatrixFace(
+                                Modifier.fillMaxSize(),
+                                mode = faceMode,
+                                speechPulse = speechPulse,
+                                onTap = { robotTapped++ }
+                            )
                         }
-                    }
                     }
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        if (busy) "Estou pensando..." else "Olá. Como posso ajudar?",
+                        when (faceMode) {
+                            FaceMode.THINKING -> "Pensando..."
+                            FaceMode.SPEAKING -> "Respondendo..."
+                            FaceMode.LISTENING -> "Estou ouvindo."
+                            FaceMode.IDLE -> "À sua disposição."
+                        },
                         color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Medium
                     )
                     Spacer(Modifier.height(5.dp))
@@ -205,6 +323,32 @@ fun JarvisApp() {
                             }
                         }
                     }
+                    pendingAction?.let { action ->
+                        Surface(
+                            color = Color(0xFF2A2412),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text("CONFIRMAR AÇÃO COM ROOT", color = Color(0xFFFFD36B), fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                                Text(action.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                Text(action.description, color = Color(0xFFB4C9D5), fontSize = 11.sp)
+                                Spacer(Modifier.height(8.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(
+                                        onClick = { confirmPending() },
+                                        enabled = !busy,
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF124B59))
+                                    ) { Text("CONFIRMAR") }
+                                    OutlinedButton(onClick = {
+                                        pendingAction = null
+                                        addAssistant("Ação cancelada. Nada foi alterado.")
+                                    }) { Text("CANCELAR") }
+                                }
+                            }
+                        }
+                    }
                     Row(
                         Modifier.fillMaxWidth().background(Panel, RoundedCornerShape(18.dp))
                             .padding(start = 14.dp, end = 5.dp, top = 6.dp, bottom = 6.dp),
@@ -222,45 +366,17 @@ fun JarvisApp() {
                                 }
                             }
                         )
-                        IconButton(
-                            enabled = input.isNotBlank() && !busy && !importing,
-                            onClick = {
-                                val prompt = input.trim()
-                                input = ""
-                                messages.add(AssistantMessage(id = System.nanoTime(), text = prompt,
-                                    role = AssistantMessage.Role.USER))
-                                busy = true
-                                logger.record("inference_started", "chars=${prompt.length}")
-                                val responseId = System.nanoTime()
-                                messages.add(AssistantMessage(id = responseId, text = "", role = AssistantMessage.Role.ASSISTANT))
-                                scope.launch {
-                                    val startedAt = System.nanoTime()
-                                    val result = runCatching {
-                                        engine.respondStreaming(prompt) { token ->
-                                            Handler(Looper.getMainLooper()).post {
-                                                val index = messages.indexOfFirst { it.id == responseId }
-                                                if (index >= 0) messages[index] = messages[index].copy(
-                                                    text = messages[index].text + token
-                                                )
-                                            }
-                                        }
-                                    }
-                                    val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
-                                    val answer = result.getOrElse { error ->
-                                        logger.record("inference_exception", error.stackTraceToString(), "ERROR")
-                                        "Erro ao processar: ${error.message}"
-                                    }
-                                    val index = messages.indexOfFirst { it.id == responseId }
-                                    if (index >= 0) messages[index] = messages[index].copy(text = answer)
-                                    performanceStatus = engine.lastMetrics.ifBlank { "Métricas indisponíveis" }
-                                    if (result.isSuccess) logger.record("inference_success", "tempo_total_ms=${elapsedMs}; ${performanceStatus}")
-                                    else logger.record("inference_failed", "tempo_total_ms=${elapsedMs}; ${answer}", "ERROR")
-                                    diagnosticText = logger.readAll()
-                                    busy = false
-                                }
+                        if (generating) {
+                            IconButton(onClick = { engine.cancel() }) {
+                                Icon(Icons.Default.Stop, contentDescription = "Parar", tint = Color(0xFFFFD36B))
                             }
-                        ) {
-                            Icon(Icons.Default.Send, contentDescription = "Enviar", tint = MatrixBlue)
+                        } else {
+                            IconButton(
+                                enabled = input.isNotBlank() && !busy && !importing,
+                                onClick = { submit() }
+                            ) {
+                                Icon(Icons.Default.Send, contentDescription = "Enviar", tint = MatrixBlue)
+                            }
                         }
                     }
                     if (busy) Text("Processamento local em andamento...", color = MatrixCyan, fontSize = 10.sp)
@@ -302,6 +418,86 @@ fun JarvisApp() {
                         }
                     }
                     item {
+                        SettingsSectionTitle("ROOT E DESEMPENHO")
+                        InfoCard {
+                            Text("Acesso root: $rootStatus", color = Color.White, fontSize = 13.sp)
+                            Spacer(Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        rootStatus = "Verificando..."
+                                        rootStatus = if (broker.isRootAvailable(force = true)) "Autorizado" else "Indisponível ou negado"
+                                        diagnosticText = logger.readAll()
+                                    }
+                                },
+                                enabled = !busy,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF124B59))
+                            ) { Text("VERIFICAR ACESSO ROOT") }
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                PerformanceProfile.values().forEach { profile ->
+                                    OutlinedButton(
+                                        onClick = {
+                                            scope.launch {
+                                                busy = true
+                                                val result = broker.execute(PrivilegedAction.ApplyProfile(profile))
+                                                rootMessage = result.message
+                                                if (result.ok) deviceInfo = provider.snapshot()
+                                                diagnosticText = logger.readAll()
+                                                busy = false
+                                            }
+                                        },
+                                        enabled = !busy,
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 4.dp)
+                                    ) { Text(profile.label, fontSize = 11.sp, maxLines = 1) }
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Boost de CPU durante as respostas", color = Color.White, fontSize = 12.sp)
+                                    Text("Aplica desempenho só enquanto o JARVIS gera texto e restaura depois. " +
+                                        "Recusa se o aparelho estiver quente ou com bateria abaixo de 15%.",
+                                        color = Color(0xFF8EA6B6), fontSize = 10.sp)
+                                }
+                                Switch(
+                                    checked = boostEnabled,
+                                    onCheckedChange = {
+                                        boostEnabled = it
+                                        uiPrefs.edit().putBoolean("inference_boost", it).apply()
+                                        logger.record("inference_boost_setting", "enabled=$it")
+                                    }
+                                )
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        busy = true
+                                        val result = broker.execute(PrivilegedAction.RestoreSnapshot)
+                                        rootMessage = result.message
+                                        if (result.ok) deviceInfo = provider.snapshot()
+                                        diagnosticText = logger.readAll()
+                                        busy = false
+                                    }
+                                },
+                                enabled = !busy && broker.hasSnapshot(),
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("RESTAURAR ESTADO ORIGINAL DA CPU") }
+                            rootMessage?.let {
+                                Spacer(Modifier.height(6.dp))
+                                Text(it, color = MatrixCyan, fontSize = 11.sp)
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Text("O JARVIS só executa operações nomeadas e validadas; o texto do modelo nunca vira comando. " +
+                                "Tudo é registrado em LOGS. No chat, experimente: “modo desempenho”, “modo economia”, " +
+                                "“liberar memória”, “temperatura do celular”, “estado da CPU”.",
+                                color = Color(0xFF8EA6B6), fontSize = 10.sp)
+                        }
+                    }
+                    item {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             SettingsSectionTitle("MAPEAMENTO DO DISPOSITIVO")
                             Spacer(Modifier.weight(1f))
@@ -330,7 +526,7 @@ fun JarvisApp() {
                     item {
                         SettingsSectionTitle("PRIVACIDADE E SEGURANÇA")
                         InfoCard {
-                            Text("O processamento do modelo é local. Recursos privilegiados, como root e interfaces de hardware, só serão adicionados com permissões explícitas, validação e registro das operações.",
+                            Text("O processamento do modelo é local. Operações com root são opcionais, limitadas a uma lista fixa, validadas no Android, confirmadas por você quando alteram o sistema e registradas localmente.",
                                 color = Color(0xFFB4C9D5), fontSize = 12.sp)
                         }
                     }
@@ -401,75 +597,5 @@ private fun HardwareRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, color = Color(0xFF8EA6B6), fontSize = 11.sp, modifier = Modifier.weight(1f))
         Text(value, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-    }
-}
-
-@Composable
-private fun MatrixRobot(modifier: Modifier = Modifier, active: Boolean) {
-    val transition = rememberInfiniteTransition(label = "matrix-rain")
-    val phase by transition.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2600, easing = LinearEasing), RepeatMode.Restart),
-        label = "rain-phase"
-    )
-    Canvas(modifier) {
-        val w = size.width
-        val h = size.height
-        val centerX = w / 2f
-        val centerY = h / 2f
-        val green = android.graphics.Paint().apply {
-            color = android.graphics.Color.rgb(38, 210, 164)
-            textSize = 10f
-            alpha = 120
-            typeface = android.graphics.Typeface.MONOSPACE
-        }
-        val native = drawContext.canvas.nativeCanvas
-        val columns = (w / 15f).toInt().coerceAtLeast(1)
-        for (col in 0 until columns) {
-            val x = col * 15f
-            val offset = ((col * 37f + phase * h * 1.7f) % (h + 50f)) - 25f
-            for (row in 0..7) {
-                val y = (offset + row * 14f) % (h + 20f)
-                native.drawText(if ((col + row) % 2 == 0) "1" else "0", x, y, green)
-            }
-        }
-        val scale = min(w / 280f, h / 205f)
-        val headW = 104f * scale
-        val headH = 92f * scale
-        val top = centerY - headH * 0.75f
-        val left = centerX - headW / 2f
-        val lineColor = if (active) MatrixCyan else MatrixBlue
-        val outline = Path().apply {
-            moveTo(left + 15f * scale, top)
-            lineTo(left + headW - 15f * scale, top)
-            lineTo(left + headW, top + 18f * scale)
-            lineTo(left + headW - 8f * scale, top + headH - 8f * scale)
-            lineTo(centerX + 28f * scale, top + headH)
-            lineTo(centerX + 20f * scale, top + headH + 12f * scale)
-            lineTo(centerX - 20f * scale, top + headH + 12f * scale)
-            lineTo(centerX - 28f * scale, top + headH)
-            lineTo(left + 8f * scale, top + headH - 8f * scale)
-            lineTo(left, top + 18f * scale)
-            close()
-        }
-        drawPath(outline, lineColor, style = Stroke(width = 2f * scale))
-        drawLine(lineColor, androidx.compose.ui.geometry.Offset(centerX, top - 17f * scale),
-            androidx.compose.ui.geometry.Offset(centerX, top), strokeWidth = 2f * scale)
-        drawCircle(MatrixCyan, radius = 4f * scale,
-            center = androidx.compose.ui.geometry.Offset(centerX, top - 21f * scale))
-        drawLine(lineColor, androidx.compose.ui.geometry.Offset(left - 18f * scale, top + 36f * scale),
-            androidx.compose.ui.geometry.Offset(left + 5f * scale, top + 42f * scale), strokeWidth = 3f * scale)
-        drawLine(lineColor, androidx.compose.ui.geometry.Offset(left + headW - 5f * scale, top + 42f * scale),
-            androidx.compose.ui.geometry.Offset(left + headW + 18f * scale, top + 36f * scale), strokeWidth = 3f * scale)
-        drawRoundRect(lineColor.copy(alpha = 0.75f), topLeft = androidx.compose.ui.geometry.Offset(centerX - 31f * scale, top + 35f * scale),
-            size = androidx.compose.ui.geometry.Size(20f * scale, 9f * scale), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale))
-        drawRoundRect(lineColor.copy(alpha = 0.75f), topLeft = androidx.compose.ui.geometry.Offset(centerX + 11f * scale, top + 35f * scale),
-            size = androidx.compose.ui.geometry.Size(20f * scale, 9f * scale), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale))
-        drawLine(MatrixCyan.copy(alpha = 0.8f), androidx.compose.ui.geometry.Offset(centerX - 15f * scale, top + 62f * scale),
-            androidx.compose.ui.geometry.Offset(centerX + 15f * scale, top + 62f * scale), strokeWidth = 2f * scale)
-        drawLine(lineColor.copy(alpha = 0.6f), androidx.compose.ui.geometry.Offset(centerX, top + headH + 12f * scale),
-            androidx.compose.ui.geometry.Offset(centerX, top + headH + 32f * scale), strokeWidth = 2f * scale)
-        drawLine(lineColor.copy(alpha = 0.6f), androidx.compose.ui.geometry.Offset(centerX - 43f * scale, top + headH + 32f * scale),
-            androidx.compose.ui.geometry.Offset(centerX + 43f * scale, top + headH + 32f * scale), strokeWidth = 2f * scale)
     }
 }

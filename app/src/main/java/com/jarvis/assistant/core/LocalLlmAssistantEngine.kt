@@ -98,6 +98,11 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
         return if (asksForDetail) 128 else 48
     }
 
+    /** Interrompe a geração em andamento (o texto parcial já emitido é mantido). */
+    fun cancel() {
+        if (nativeAvailable) runCatching { nativeCancel() }
+    }
+
     fun unload() {
         if (nativeAvailable) runCatching { nativeUnloadModel() }
         activeModelPath = null
@@ -115,6 +120,7 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
     ): String
     private external fun nativeGetLastMetrics(): String
     private external fun nativeUnloadModel()
+    private external fun nativeCancel()
 
     fun interface NativeTokenCallback {
         fun onToken(token: String)

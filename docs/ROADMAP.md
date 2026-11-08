@@ -12,9 +12,16 @@
 - [x] Copiar o modelo para armazenamento privado do aplicativo
 - [x] Carregar modelo local e gerar respostas por CPU
 - [x] Limites iniciais de contexto, threads e tokens de saída
-- [ ] Streaming de tokens e cancelamento de geração
+- [x] Streaming de tokens e cancelamento de geração
 - [ ] Configurações editáveis de contexto, threads e amostragem
 - [ ] Validar desempenho e estabilidade em dispositivos reais
+
+## 0.5 — Rosto Matrix e Root Broker (implementado nesta versão)
+- [x] Rosto interativo em chuva de glifos (piscar, olhar, boca por token, estados)
+- [x] Root Broker com allowlist, validação, guardas térmica/bateria, snapshot e auditoria
+- [x] Roteador de intenções em português com confirmação para ações que alteram o sistema
+- [x] Boost opcional de CPU durante a geração
+- [ ] Validar em aparelho real (governors/frequências por SoC) e ajustar nós específicos do fabricante
 
 ## 0.3 — Memória
 - [ ] Room/SQLite
@@ -29,7 +36,7 @@
 ## 0.5 — Android tools
 - [ ] Intents e APIs Android
 - [ ] Serviço de notificações com consentimento
-- [ ] Root broker com allowlist, validação, confirmação e auditoria
+- [x] Root broker com allowlist, validação, confirmação e auditoria (CPU/memória/térmica; GPU/devfreq pendentes)
 
 ## 0.6 — Otimização
 - [ ] Benchmark CPU
