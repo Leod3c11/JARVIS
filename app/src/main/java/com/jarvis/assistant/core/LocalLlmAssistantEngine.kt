@@ -55,7 +55,7 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
         // A tentativa de troca descarrega o modelo anterior no lado nativo.
         activeModelPath = null
         modelName = null
-        val loadError = nativeLoadModel(file.absolutePath, DEFAULT_CONTEXT, DEFAULT_THREADS)
+        val loadError = nativeLoadModel(file.absolutePath, DEFAULT_CONTEXT, optimalThreadCount())
         if (!loadError.isNullOrEmpty()) {
             preferences.edit().remove(KEY_MODEL_PATH).apply()
             return@withContext loadError
@@ -123,7 +123,5 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
     private companion object {
         const val KEY_MODEL_PATH = "model_path"
         const val DEFAULT_CONTEXT = 1536
-        const val DEFAULT_THREADS = 6
-        const val MAX_OUTPUT_TOKENS = 48
     }
 }
