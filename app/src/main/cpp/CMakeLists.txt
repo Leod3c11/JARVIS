@@ -14,11 +14,7 @@ set(GGML_LLAMAFILE OFF CACHE BOOL "" FORCE)
 set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
 if(ANDROID)
     set(_jarvis_vulkan_loader
-        "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/26/libvulkan.so")
-    if(NOT EXISTS "${_jarvis_vulkan_loader}")
-        set(_jarvis_vulkan_loader
-            "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/libvulkan.so")
-    endif()
+        "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/28/libvulkan.so")
     if(EXISTS "/usr/include/vulkan/vulkan.hpp"
        AND EXISTS "/usr/bin/glslc"
        AND EXISTS "/usr/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake"
@@ -28,7 +24,7 @@ if(ANDROID)
         set(Vulkan_LIBRARY "${_jarvis_vulkan_loader}" CACHE FILEPATH "" FORCE)
         set(Vulkan_GLSLC_EXECUTABLE "/usr/bin/glslc" CACHE FILEPATH "" FORCE)
         set(SPIRV-Headers_DIR "/usr/share/cmake/SPIRV-Headers" CACHE PATH "" FORCE)
-        message(STATUS "JARVIS: Vulkan backend enabled for Android arm64")
+        message(STATUS "JARVIS: Vulkan 1.1 backend enabled with API 28 loader for Android arm64")
     else()
         message(WARNING "JARVIS: Vulkan build dependencies unavailable; using optimized ARM CPU backend")
     endif()
