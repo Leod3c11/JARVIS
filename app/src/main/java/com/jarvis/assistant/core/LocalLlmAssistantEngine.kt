@@ -31,7 +31,7 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
             return@withContext false
         }
 
-        val loadError = nativeLoadModel(file.absolutePath, DEFAULT_CONTEXT, DEFAULT_THREADS)
+        val loadError = nativeLoadModel(file.absolutePath, DEFAULT_CONTEXT, optimalThreadCount())
         if (loadError.isNullOrEmpty()) {
             activeModelPath = file.absolutePath
             modelName = file.name
@@ -79,13 +79,24 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
             }
 
             runCatching {
-                nativeGenerate(userText, MAX_OUTPUT_TOKENS, 0.7f, 40, 0.9f, NativeTokenCallback(onToken)).also {
+                nativeGenerate(userText, outputLimitFor(userText), 0.55f, 24, 0.88f, NativeTokenCallback(onToken)).also {
                     lastMetrics = nativeGetLastMetrics()
                 }
             }.getOrElse { error ->
                 "Não consegui gerar uma resposta: ${error.message ?: "erro nativo"}"
             }
         }
+
+    private fun optimalThreadCount(): Int =
+        Runtime.getRuntime().availableProcessors().coerceIn(4, 6)
+
+    private fun outputLimitFor(text: String): Int {
+        val normalized = text.trim().lowercase()
+        val asksForDetail = normalized.length > 180 ||
+            listOf("explique detalhadamente", "passo a passo", "em detalhes", "compare", "analise", "análise",
+                "resuma", "liste", "tutorial", "código", "programa", "programação").any(normalized::contains)
+        return if (asksForDetail) 128 else 48
+    }
 
     fun unload() {
         if (nativeAvailable) runCatching { nativeUnloadModel() }
@@ -111,8 +122,8 @@ class LocalLlmAssistantEngine(context: Context) : AssistantEngine {
 
     private companion object {
         const val KEY_MODEL_PATH = "model_path"
-        const val DEFAULT_CONTEXT = 2048
-        const val DEFAULT_THREADS = 4
-        const val MAX_OUTPUT_TOKENS = 128
+        const val DEFAULT_CONTEXT = 1536
+        const val DEFAULT_THREADS = 6
+        const val MAX_OUTPUT_TOKENS = 48
     }
 }
