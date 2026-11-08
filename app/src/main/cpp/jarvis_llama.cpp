@@ -130,8 +130,10 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGenerate(
     }
 
     const uint32_t context_limit = llama_n_ctx(g_context);
-    const int32_t output_limit = std::clamp(max_tokens, 16, 512);
-    if (static_cast<uint32_t>(token_count) + 8 >= context_limit) {
+    const int32_t requested_output = std::clamp(max_tokens, 16, 512);
+    const int32_t remaining = static_cast<int32_t>(context_limit) - token_count - 1;
+    const int32_t output_limit = std::min(requested_output, remaining);
+    if (output_limit < 1) {
         return java_string(env, "A mensagem excede o contexto configurado. Reduza o texto.");
     }
 
