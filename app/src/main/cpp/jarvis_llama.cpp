@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <sstream>
 #include <cstdint>
+#include <exception>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -32,6 +33,30 @@ void unload_locked() {
 
 jstring java_string(JNIEnv * env, const std::string & value) {
     return env->NewStringUTF(value.c_str());
+}
+
+std::string backend_description() {
+    std::ostringstream info;
+#ifdef JARVIS_KLEIDIAI_ENABLED
+    info << "CPU ARM otimizada (KleidiAI)";
+#else
+    info << "CPU ARM padrão";
+#endif
+    const bool gpu_available = llama_supports_gpu_offload();
+    info << (gpu_available ? " • GPU offload disponível" : " • GPU offload indisponível");
+    for (size_t i = 0; i < ggml_backend_reg_count(); ++i) {
+        ggml_backend_reg_t reg = ggml_backend_reg_get(i);
+        if (!reg) continue;
+        const char * name = ggml_backend_reg_name(reg);
+        if (!name) continue;
+        for (size_t d = 0; d < ggml_backend_reg_dev_count(reg); ++d) {
+            ggml_backend_dev_t device = ggml_backend_reg_dev_get(reg, d);
+            if (!device) continue;
+            const char * device_name = ggml_backend_dev_name(device);
+            if (device_name) info << " • " << name << ": " << device_name;
+        }
+    }
+    return info.str();
 }
 
 std::string token_piece(const llama_vocab * vocab, llama_token token) {
@@ -69,10 +94,32 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeLoadModel(
     }
 
     llama_model_params model_params = llama_model_default_params();
-    model_params.n_gpu_layers = 0; // CPU fallback until GPU support is validated on-device.
-    g_model = llama_model_load_from_file(path.c_str(), model_params);
+    const bool gpu_available = llama_supports_gpu_offload();
+    model_params.n_gpu_layers = gpu_available ? -1 : 0;
+    try {
+        g_model = llama_model_load_from_file(path.c_str(), model_params);
+    } catch (const std::exception & error) {
+        __android_log_print(ANDROID_LOG_ERROR, TAG, "GPU model load exception: %s", error.what());
+        g_model = nullptr;
+    } catch (...) {
+        __android_log_print(ANDROID_LOG_ERROR, TAG, "GPU model load raised an unknown exception");
+        g_model = nullptr;
+    }
+
+    // Some mobile Vulkan drivers expose a device but cannot allocate this
+    // model reliably. Retry once on CPU instead of leaving JARVIS unusable.
+    if (!g_model && gpu_available) {
+        __android_log_print(ANDROID_LOG_WARN, TAG, "GPU load failed; retrying with CPU backend");
+        model_params = llama_model_default_params();
+        model_params.n_gpu_layers = 0;
+        try {
+            g_model = llama_model_load_from_file(path.c_str(), model_params);
+        } catch (...) {
+            g_model = nullptr;
+        }
+    }
     if (!g_model) {
-        return java_string(env, "Não foi possível abrir o GGUF. Verifique se o arquivo está íntegro e é compatível.");
+        return java_string(env, "Não foi possível abrir o GGUF nem com GPU nem com CPU. Verifique o arquivo e a memória disponível.");
     }
 
     llama_context_params context_params = llama_context_default_params();
@@ -90,9 +137,10 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeLoadModel(
     }
 
     __android_log_print(ANDROID_LOG_INFO, TAG,
-        "GGUF loaded: %s; ctx=%u; threads=%d; batch=%u; ubatch=%u",
+        "GGUF loaded: %s; ctx=%u; threads=%d; batch=%u; ubatch=%u; gpu_layers=%d; backend=%s",
         path.c_str(), context_params.n_ctx, context_params.n_threads,
-        context_params.n_batch, context_params.n_ubatch);
+        context_params.n_batch, context_params.n_ubatch, model_params.n_gpu_layers,
+        backend_description().c_str());
     return java_string(env, "");
 }
 
@@ -296,4 +344,15 @@ Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeUnloadModel(
         JNIEnv *, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
     unload_locked();
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_jarvis_assistant_core_LocalLlmAssistantEngine_nativeGetBackendInfo(
+        JNIEnv * env, jobject) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_backend_initialized) {
+        llama_backend_init();
+        g_backend_initialized = true;
+    }
+    return java_string(env, backend_description());
 }
